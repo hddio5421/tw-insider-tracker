@@ -1,0 +1,40 @@
+name: Auto Update Insider Data
+
+on:
+  schedule:
+    # 每天 UTC 10:00 執行 (等於台灣時間 18:00)
+    - cron: '0 10 * * *'
+  workflow_dispatch: # 允許手動觸發
+
+permissions:
+  contents: write # 需要寫入權限才能 commit data 回 repo
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run web scraper
+        run: node scripts/fetchOpenData.js
+
+      - name: Build static webpage
+        run: npm run build
+
+      - name: Commit and push changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data.js index.html data/
+          git commit -m "Auto-update insider data [skip ci]" || echo "No changes to commit"
+          git push
