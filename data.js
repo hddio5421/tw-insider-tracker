@@ -17292,16 +17292,16 @@ window.PLEDGE_DATA = [
 ];
 window.TRANSFER_DATA = [
   {
-    "key": "transfer-1326-0",
-    "id": "1326",
-    "name": "台化",
-    "director": "王文淵",
-    "title": "董事本人",
-    "method": "信託",
-    "recipient": "陳清洲受託信託財產專戶",
-    "currentShares": 128207809,
-    "transferShares": 732614,
-    "validPeriod": "1150803~1150805",
-    "publishDate": "1150803"
+    "key": "transfer-6834-宸芝芝投資有限公司- 一般交易(每日得轉讓股數限制)-1150804",
+    "id": "6834",
+    "name": "天二科技",
+    "director": "宸芝芝投資有限公司",
+    "title": "經理人利用他人名義持有者",
+    "method": " 一般交易(每日得轉讓股數限制)",
+    "recipient": "市場集中交易",
+    "currentShares": 150000,
+    "transferShares": 150000,
+    "validPeriod": "1150807~1150906",
+    "publishDate": "1150804"
   }
 ];

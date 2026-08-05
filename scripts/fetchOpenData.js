@@ -174,25 +174,78 @@ async function fetchAndProcessData() {
         }
         await fs.writeFile(lastSnapshotPath, JSON.stringify(newSnapshot, null, 2), 'utf-8');
 
-        // ── 處理申報轉讓 ──────────────────────────────────────────────────────
-        const transferList = rawTransferData.map((item, idx) => {
+        // ── 處理申報轉讓歷史累積 ─────────────────────────────────────────────
+        const transferHistoryPath = path.join(dataDir, 'transferHistory.json');
+        let transferHistoryMap = new Map();
+        try {
+            const hist = JSON.parse(await fs.readFile(transferHistoryPath, 'utf-8'));
+            if (Array.isArray(hist)) {
+                hist.forEach(t => transferHistoryMap.set(t.key, t));
+            }
+        } catch (e) {
+            // First time or file not found
+        }
+
+        // 解析並合併今天的新資料
+        rawTransferData.forEach(item => {
+            const id = item['公司代號'] || '';
+            const director = item['姓名'] || '';
+            const method = item['預定轉讓方式及股數-轉讓方式'] || item['預定轉讓方式'] || '一般交易';
+            const publishDate = item['出表日期'] || item['Date'] || '';
+            
+            // 建立唯一鍵值：代號-姓名-方式-出表日
+            const uniqueKey = `transfer-${id}-${director}-${method}-${publishDate}`;
+            
             const sharesOwned = parseInt((item['目前持有股數-自有持股'] || item['目前持股自有持股'] || '0').replace(/,/g, ''), 10);
             const sharesTransfer = parseInt((item['預定轉讓總股數-自有持股'] || item['原申報預定轉讓股數自有持股'] || '0').replace(/,/g, ''), 10);
-            return {
-                key: `transfer-${item['公司代號']}-${idx}`,
-                id: item['公司代號'] || '',
+            
+            transferHistoryMap.set(uniqueKey, {
+                key: uniqueKey,
+                id,
                 name: item['公司名稱'] || '',
-                director: item['姓名'] || '',
+                director,
                 title: item['申報人身分'] || item['申請人身分'] || '',
-                method: item['預定轉讓方式及股數-轉讓方式'] || item['預定轉讓方式'] || '一般交易',
+                method,
                 recipient: item['受讓人'] || '市場集中交易',
                 currentShares: sharesOwned,
                 transferShares: sharesTransfer,
                 validPeriod: item['有效轉讓期間'] || '',
-                publishDate: item['出表日期'] || item['Date'] || ''
-            };
+                publishDate
+            });
         });
-        transferList.sort((a, b) => (parseInt(a.id, 10) || 0) - (parseInt(b.id, 10) || 0));
+
+        // 剔除超過 60 天的舊資料
+        const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+        const now = Date.now();
+        const transferList = [];
+        
+        for (const [key, t] of transferHistoryMap.entries()) {
+            // 解析民國日期，例如 113/08/05 或 1130805
+            let dStr = t.publishDate.replace(/\D/g, '');
+            let isOld = false;
+            if (dStr.length >= 7) {
+                const y = parseInt(dStr.substring(0, dStr.length - 4), 10) + 1911;
+                const m = parseInt(dStr.substring(dStr.length - 4, dStr.length - 2), 10) - 1;
+                const d = parseInt(dStr.substring(dStr.length - 2), 10);
+                const pubDate = new Date(y, m, d).getTime();
+                if (now - pubDate > sixtyDaysMs) {
+                    isOld = true;
+                }
+            }
+            if (!isOld) {
+                transferList.push(t);
+            }
+        }
+        
+        // 依最新日期及股票代號排序 (新的在上面)
+        transferList.sort((a, b) => {
+            const dateCompare = b.publishDate.localeCompare(a.publishDate);
+            if (dateCompare !== 0) return dateCompare;
+            return (parseInt(a.id, 10) || 0) - (parseInt(b.id, 10) || 0);
+        });
+
+        // 存回 transferHistory.json
+        await fs.writeFile(transferHistoryPath, JSON.stringify(transferList, null, 2), 'utf-8');
 
         // ── 輸出 data.js ──────────────────────────────────────────────────────
         const jsContent =
