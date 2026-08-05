@@ -42,22 +42,18 @@ async function fetchAndProcessData() {
         const dataDir = path.join(process.cwd(), 'data');
         await fs.mkdir(dataDir, { recursive: true });
 
-        // ── 讀取上月基準快照 (monthlyBaseline.json) ──────────────────────────
-        // 這份基準只在「月份切換時」才會更新
-        // pledgedDiff = 本期現況 - 上月底基準  →  整個月內每天跑，差額都是累積值
-        const baselinePath = path.join(dataDir, 'monthlyBaseline.json');
-        let monthlyBaseline = {};
-        let baselineMonth = '';
+        // ── 讀取 90天滾動質押快照 (pledgeSnapshots.json) ─────────────────────
+        const pledgeSnapshotsPath = path.join(dataDir, 'pledgeSnapshots.json');
+        let pledgeSnapshots = {};
         try {
-            const raw = JSON.parse(await fs.readFile(baselinePath, 'utf-8'));
-            monthlyBaseline = raw.data || {};
-            baselineMonth = raw.month || '';
+            pledgeSnapshots = JSON.parse(await fs.readFile(pledgeSnapshotsPath, 'utf-8'));
         } catch (e) {
-            console.log('No monthly baseline found. Will create one after this run.');
+            console.log('No pledge snapshots found. Will create one.');
         }
 
         // ── 去除重複並解析本期資料 ────────────────────────────────────────────
         const deduplicatedMap = new Map();
+        let currentMonth = '';
         for (const item of rawPledgeData) {
             const id = item['公司代號'];
             const director = (item['姓名'] || '').trim();
@@ -74,6 +70,7 @@ async function fetchAndProcessData() {
                 const twYear = parseInt(dateStr.substring(0, dateStr.length - 2), 10);
                 const month = dateStr.substring(dateStr.length - 2);
                 dateStr = `${twYear + 1911}-${month}`;
+                if (!currentMonth) currentMonth = dateStr;
             }
 
             if (!deduplicatedMap.has(uniqueKey)) {
@@ -90,46 +87,45 @@ async function fetchAndProcessData() {
             }
         }
 
-        // ── 取得本期月份，判斷是否需要更新月底基準 ───────────────────────────
-        let currentMonth = '';
-        for (const item of deduplicatedMap.values()) {
-            if (item.date) { currentMonth = item.date; break; }
+        // ── 儲存今日快照並清理超過 90 天的舊快照 ─────────────────────────────
+        // 台灣時區今日日期 (YYYY-MM-DD)
+        const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().split('T')[0];
+        const newSnapshot = {};
+        for (const [key, item] of deduplicatedMap.entries()) {
+            newSnapshot[key] = { pledged: item.pledged, ratio: item.ratio };
         }
+        pledgeSnapshots[todayStr] = newSnapshot;
 
-        // 如果月份切換（或首次執行），先把「舊的本期資料」存為新基準
-        // 邏輯：基準月份 != 本期月份 → 說明進入新月，把上次快照升格為基準
-        const lastSnapshotPath = path.join(dataDir, 'lastSnapshot.json');
-        let lastSnapshot = {};
-        try {
-            lastSnapshot = JSON.parse(await fs.readFile(lastSnapshotPath, 'utf-8'));
-        } catch (e) { /* 首次執行，沒有舊快照 */ }
+        const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000;
+        const nowMs = Date.now() + 8 * 3600 * 1000;
+        let oldestDate = todayStr;
+        let oldestTimestamp = nowMs;
 
-        if (baselineMonth !== currentMonth && Object.keys(lastSnapshot).length > 0) {
-            // 月份切換 → 把上個月的最後快照升格為本月基準
-            monthlyBaseline = lastSnapshot;
-            baselineMonth = currentMonth;
-            await fs.writeFile(baselinePath, JSON.stringify({ month: baselineMonth, data: monthlyBaseline }, null, 2), 'utf-8');
-            console.log(`Monthly baseline updated to: ${baselineMonth}`);
-        } else if (baselineMonth === '' && Object.keys(monthlyBaseline).length === 0) {
-            // 首次執行：直接用本期資料當基準（差額全部顯示為 0，下個月才會有差額）
-            const tempBaseline = {};
-            for (const [key, item] of deduplicatedMap.entries()) {
-                tempBaseline[key] = { pledged: item.pledged };
+        for (const d of Object.keys(pledgeSnapshots)) {
+            const ts = new Date(d).getTime(); // d is YYYY-MM-DD
+            if (nowMs - ts > ninetyDaysMs) {
+                delete pledgeSnapshots[d];
+            } else {
+                if (ts < oldestTimestamp) {
+                    oldestTimestamp = ts;
+                    oldestDate = d;
+                }
             }
-            monthlyBaseline = tempBaseline;
-            baselineMonth = currentMonth;
-            await fs.writeFile(baselinePath, JSON.stringify({ month: baselineMonth, data: monthlyBaseline }, null, 2), 'utf-8');
-            console.log(`First run: baseline initialized for ${baselineMonth}`);
         }
+        
+        await fs.writeFile(pledgeSnapshotsPath, JSON.stringify(pledgeSnapshots, null, 2), 'utf-8');
+        console.log(`Pledge snapshot baseline date: ${oldestDate} (Today: ${todayStr})`);
+        
+        const rollingBaseline = pledgeSnapshots[oldestDate] || {};
 
-        // ── 計算 pledgedDiff = 本期 - 上月基準 ────────────────────────────────
+        // ── 計算 pledgedDiff = 本期 - 滾動基準 ────────────────────────────────
         const pledgeList = [];
 
         for (const [uniqueKey, item] of deduplicatedMap.entries()) {
             if (item.pledged <= 0) continue; // 只顯示目前仍有質押者
 
-            const basePledged = monthlyBaseline[uniqueKey]?.pledged ?? null;
-            // null → 本月新增質設（上月無記錄），以本期全數為增量
+            const basePledged = rollingBaseline[uniqueKey]?.pledged ?? null;
+            // null → 基準日無記錄（新增質設），以本期全數為增量
             const pledgedDiff = basePledged === null ? item.pledged : item.pledged - basePledged;
 
             pledgeList.push({
@@ -140,19 +136,19 @@ async function fetchAndProcessData() {
                 shares: item.shares,
                 pledged: item.pledged,
                 ratio: item.ratio,
-                date: item.date,
+                date: item.date || currentMonth,
                 warning: item.ratio > 50,
                 pledgedDiff,
-                isNew: basePledged === null  // 本月新增質設標記
+                isNew: basePledged === null  // 期間新增質設標記
             });
         }
 
-        // ── 另外算「已完全解質」的人（上月有，本月不見了）────────────────────
+        // ── 另外算「已完全解質」的人（基準有，本期不見了）────────────────────
         const currentKeys = new Set(deduplicatedMap.keys());
         const fullyReleased = [];
-        for (const [key, base] of Object.entries(monthlyBaseline)) {
+        for (const [key, base] of Object.entries(rollingBaseline)) {
             if (!currentKeys.has(key) && base.pledged > 0) {
-                // 本月資料中消失 → 已完全解質
+                // 本期資料中消失 → 已完全解質
                 const [id, ...nameParts] = key.split('-');
                 fullyReleased.push({
                     id, name: '', director: nameParts.join('-'),
@@ -164,15 +160,8 @@ async function fetchAndProcessData() {
         }
 
         // 合併並排序
-        const allChanges = [...pledgeList, ...fullyReleased];
+        pledgeList.push(...fullyReleased);
         pledgeList.sort((a, b) => (parseInt(a.id, 10) || 0) - (parseInt(b.id, 10) || 0));
-
-        // ── 儲存本次快照供下次月份切換使用 ──────────────────────────────────
-        const newSnapshot = {};
-        for (const [key, item] of deduplicatedMap.entries()) {
-            newSnapshot[key] = { pledged: item.pledged, ratio: item.ratio };
-        }
-        await fs.writeFile(lastSnapshotPath, JSON.stringify(newSnapshot, null, 2), 'utf-8');
 
         // ── 處理申報轉讓歷史累積 ─────────────────────────────────────────────
         const transferHistoryPath = path.join(dataDir, 'transferHistory.json');
@@ -214,8 +203,8 @@ async function fetchAndProcessData() {
             });
         });
 
-        // 剔除超過 60 天的舊資料
-        const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
+        // 剔除超過 90 天的舊資料
+        const transferNinetyDaysMs = 90 * 24 * 60 * 60 * 1000;
         const now = Date.now();
         const transferList = [];
         
@@ -228,7 +217,7 @@ async function fetchAndProcessData() {
                 const m = parseInt(dStr.substring(dStr.length - 4, dStr.length - 2), 10) - 1;
                 const d = parseInt(dStr.substring(dStr.length - 2), 10);
                 const pubDate = new Date(y, m, d).getTime();
-                if (now - pubDate > sixtyDaysMs) {
+                if (now - pubDate > transferNinetyDaysMs) {
                     isOld = true;
                 }
             }
@@ -255,8 +244,8 @@ async function fetchAndProcessData() {
         await fs.writeFile(path.join(process.cwd(), 'data.js'), jsContent, 'utf-8');
 
         const changed = pledgeList.filter(x => x.pledgedDiff !== 0).length;
-        console.log(`Saved ${pledgeList.length} active pledges (${changed} with monthly changes), ${transferList.length} transfer notices.`);
-        console.log(`Baseline month: ${baselineMonth}, Current data month: ${currentMonth}`);
+        console.log(`Saved ${pledgeList.length} active pledges (${changed} with rolling 90-day changes), ${transferList.length} transfer notices.`);
+        console.log(`Current data month: ${currentMonth}`);
         console.log('Data written to data.js');
 
     } catch (error) {
