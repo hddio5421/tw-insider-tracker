@@ -1,32 +1,22 @@
-# React + TypeScript + Vite
+# 台股內部人籌碼風控系統 (Taiwan Insider Tracker)
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+這是一個用來追蹤上市櫃公司董監事「質押」與「申報轉讓」動態的系統，協助監控大股東籌碼變化與潛在風險。
 
-Currently, two official plugins are available:
+## 系統特色
+- 每日自動抓取證交所與櫃買中心 OpenAPI 最新資料
+- 計算質押增減差額與高風險警戒
+- 自動累積與保留歷史申報轉讓公告
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+---
 
-## React Compiler
+## 📅 版本更新紀錄 (Changelog)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
-```
-
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+### [2026-08-05] 90 天滾動式歷史快照升級
+- **申報轉讓歷史累積**：
+  - 新增歷史資料庫 (`data/transferHistory.json`)，將原先每日覆蓋的邏輯改為「新增與自動合併」。
+  - 實作 90 天自動過期剔除機制，永遠保持最近三個月的完整申報轉讓公告。
+- **質押滾動基準 (Rolling Baseline)**：
+  - 廢棄原有的單一月份比較基準 (`monthlyBaseline.json`)。
+  - 全新實作「每日全市場質押快照庫」 (`data/pledgeSnapshots.json`)。
+  - 差額計算邏輯改為：**「今日現況」減去「90 天前的快照」**，達成真正的滾動式三個月質押異動追蹤。
+  - （註：於升級首日已將舊版 6 月底之資料移轉為最早的快照基準，以無縫接軌歷史數據）。
