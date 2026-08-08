@@ -1,5 +1,31 @@
 [
   {
+    "key": "transfer-1726-張德賢之配偶-洽特定人-1150807",
+    "id": "1726",
+    "name": "永記",
+    "director": "張德賢之配偶",
+    "title": "經理人配偶",
+    "method": "洽特定人",
+    "recipient": "凱璿投資股份有限公司籌備處 代表人:黃湘惠",
+    "currentShares": 9338101,
+    "transferShares": 4669000,
+    "validPeriod": "1150807~1150809",
+    "publishDate": "1150807"
+  },
+  {
+    "key": "transfer-8110-華新麗華股份有限公司- 一般交易(每日得轉讓股數限制)-1150807",
+    "id": "8110",
+    "name": "華東",
+    "director": "華新麗華股份有限公司",
+    "title": "董事本人",
+    "method": " 一般交易(每日得轉讓股數限制)",
+    "recipient": "市場集中交易",
+    "currentShares": 96761376,
+    "transferShares": 3633000,
+    "validPeriod": "1150810~1150909",
+    "publishDate": "1150807"
+  },
+  {
     "key": "transfer-6834-宸芝芝投資有限公司- 一般交易(每日得轉讓股數限制)-1150804",
     "id": "6834",
     "name": "天二科技",
